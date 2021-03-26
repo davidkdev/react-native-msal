@@ -13,6 +13,7 @@ import com.facebook.react.bridge.ReadableArray;
 import com.facebook.react.bridge.ReadableMap;
 import com.facebook.react.bridge.WritableArray;
 import com.facebook.react.bridge.WritableMap;
+import com.facebook.react.bridge.ReadableMapKeySetIterator;
 import com.microsoft.identity.client.AcquireTokenParameters;
 import com.microsoft.identity.client.AcquireTokenSilentParameters;
 import com.microsoft.identity.client.AuthenticationCallback;
@@ -29,8 +30,75 @@ import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-
+import java.io.ByteArrayInputStream;
+import org.json.*;
 public class RNMSALModule extends ReactContextBaseJavaModule {
+
+    private static JSONArray convertAuthoritiesToJson(ReadableArray readableArray) throws JSONException {
+
+        boolean defaultbool = true;
+        JSONArray array = new JSONArray();
+        for (int i = 0; i < readableArray.size(); i++) {
+            JSONObject object = new JSONObject();
+            object.put("authority_url",readableArray.getString(i));
+            object.put("type","B2C");
+            object.put("default",defaultbool);
+            if (defaultbool) {
+                defaultbool = false;
+            }
+            array.put(object);
+        }
+        return array;
+    }
+
+
+    private static JSONArray convertArrayToJson(ReadableArray readableArray) throws JSONException {
+        JSONArray array = new JSONArray();
+        for (int i = 0; i < readableArray.size(); i++) {
+            switch (readableArray.getType(i)) {
+                case Null:
+                    break;
+                case Boolean:
+                    array.put(readableArray.getBoolean(i));
+                    break;
+                case Number:
+                    array.put(readableArray.getDouble(i));
+                    break;
+                case String:
+                    array.put(readableArray.getString(i));
+                    break;
+                case Map:
+                    array.put(convertMapToJson(readableArray.getMap(i)));
+                    break;
+                case Array:
+                    array.put(convertArrayToJson(readableArray.getArray(i)));
+                    break;
+            }
+        }
+        return array;
+    }
+
+    private static JSONObject convertMapToJson(ReadableMap readableMap) throws JSONException {
+        JSONObject object = new JSONObject();
+        ReadableMapKeySetIterator iterator = readableMap.keySetIterator();
+        while (iterator.hasNextKey()) {
+            String key = iterator.nextKey();
+            switch (key) {
+                case "redirectUri":
+                    object.put("redirect_uri", readableMap.getString(key));
+                    break;
+                case "clientId":
+                    object.put("client_id", readableMap.getString(key));
+                    break;
+                case "knownAuthorities":
+                    object.put("authorities", convertAuthoritiesToJson(readableMap.getArray(key)));
+                    break;
+            }
+        }
+        object.put("broker_redirect_uri_registered", false);
+        object.put("account_mode", "MULTIPLE");
+        return object;
+    }
     private IMultipleAccountPublicClientApplication publicClientApplication;
 
     public RNMSALModule(ReactApplicationContext reactContext) {
@@ -47,14 +115,18 @@ public class RNMSALModule extends ReactContextBaseJavaModule {
     public void createPublicClientApplication(ReadableMap params) {
         ReactApplicationContext context = getReactApplicationContext();
         try {
-            InputStream inputStream = context.getAssets().open("msal_config.json");
+            JSONObject msalConfig = RNMSALModule.convertMapToJson(params.getMap("auth"));
             File file = File.createTempFile("RNMSAL_msal_config", ".tmp");
             file.deleteOnExit();
-            FileUtils.copyInputStreamToFile(inputStream, file);
+            InputStream is = new ByteArrayInputStream(msalConfig.toString().getBytes("UTF-8"));
+            FileUtils.copyInputStreamToFile(is, file);
             publicClientApplication =
                     PublicClientApplication.createMultipleAccountPublicClientApplication(
                             context, file);
         } catch (Exception ignored) {
+            System.err.println("-------------------------------Exception----------------------------------------------------------");
+            System.err.println(ignored);
+            System.err.println("-----------------------------------------------------------------------------------------------");
         }
     }
 
